@@ -1,7 +1,7 @@
 ---
 name: 1panel-skills
 description: Use for 1Panel resource queries, Docker software installation and Compose maintenance, OpenResty website and reverse-proxy configuration, HTTPS, web diagnostics, proxy configuration and scheduled maintenance. Reuse the original modules and client; use the added scripts for checked, reversible changes rather than inventing raw API calls.
-version: 1.1.0
+version: 1.1.2
 ---
 
 # 1Panel Skills: personal operations extension

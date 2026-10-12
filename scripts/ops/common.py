@@ -10,7 +10,7 @@ import tempfile
 import time
 import uuid
 
-VERSION = '1.1.0'
+VERSION = '1.1.2'
 MAX_INPUT = 1024 * 1024
 
 class OpsError(Exception):

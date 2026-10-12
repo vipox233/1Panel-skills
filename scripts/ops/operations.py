@@ -143,7 +143,7 @@ class Operations:
             return None
         if action == 'website.config':
             self.website(target)
-            return {'content': content(self.call('GET', f"/websites/{target['id']}/config/nginx"))}
+            return {'content': content(self.call('GET', f"/websites/{target['id']}/config/openresty"))}
         if action == 'openresty.config':
             return {'content': content(self.call('GET', '/openresty'))}
         if action in ('proxy.create', 'proxy.config'):
@@ -214,8 +214,13 @@ class Operations:
             name(target.get('name')); text(target.get('container_id'), 'container ID', 100)
         elif action.startswith('website.') or action.startswith('proxy.'):
             text(target.get('domain'), 'domain', 253)
-            require(re.fullmatch(r'[A-Za-z0-9.-]+', target['domain']) is not None,
-                    'BAD_INPUT', 'Use an exact ASCII domain name')
+            # Existing 1Panel identities may include a listener port. Keep the
+            # exact inventory identity for the subsequent ID/domain match.
+            pattern = r'[A-Za-z0-9.-]+' if action == 'website.create' else r'[A-Za-z0-9.-]+(?::[0-9]{1,5})?'
+            require(re.fullmatch(pattern, target['domain']) is not None,
+                    'BAD_INPUT', 'Use the exact ASCII domain from inventory; existing sites may include a port')
+            if ':' in target['domain']:
+                integer(int(target['domain'].rsplit(':', 1)[1]), 'domain port', 1, 65535)
             if action == 'website.create': name(target.get('alias'), 'site alias')
             else: integer(target.get('id'), 'website id')
             if action.startswith('proxy.'): name(target.get('proxy_name'), 'proxy name')

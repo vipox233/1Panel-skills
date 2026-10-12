@@ -5,7 +5,7 @@ import { getModule } from '../dist/scripts/index.js';
 const reads = [
   /^\/api\/v2\/containers\/(?:search|info|inspect|compose\/search)$/,
   /^\/api\/v2\/files\/content$/,
-  /^\/api\/v2\/websites\/(?:search|list|proxies|\d+(?:\/config\/nginx|\/https)?|domains\/\d+)$/,
+  /^\/api\/v2\/websites\/(?:search|list|proxies|\d+(?:\/config\/openresty|\/https)?|domains\/\d+)$/,
   /^\/api\/v2\/openresty(?:\/status)?$/,
   /^\/api\/v2\/cronjobs\/(?:search|\d+|next)$/,
   /^\/api\/v2\/logs\/tasks\/search$/,

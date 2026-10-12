@@ -13,7 +13,7 @@ paths=[p for p in paths if not any(x.startswith('.') or x in ('node_modules','__
 assert (ROOT/'dist/scripts/client.js') in paths, 'Missing original built client'
 assert (ROOT/'dist/scripts/index.js') in paths, 'Missing original module registry'
 assert len(list((ROOT/'scripts/modules').glob('*.ts')))>=8, 'Original modules missing'
-assert 'version: 1.1.0' in (ROOT/'SKILL.md').read_text(), 'Missing AgentDock package version'
+assert 'version: 1.1.2' in (ROOT/'SKILL.md').read_text(), 'Missing AgentDock package version'
 with zipfile.ZipFile(ROOT/'skill.zip','w',zipfile.ZIP_DEFLATED) as archive:
     for p in sorted(set(paths)):
         archive.write(p, '1panel-skills/'+str(p.relative_to(ROOT)))

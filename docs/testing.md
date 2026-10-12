@@ -29,17 +29,22 @@ skill_ref model. They do not change the tested operations code.
 
 ## Live integration and installation
 
-API contracts were prepared from pinned 1Panel v2.3.2 source. Local Swagger required
-authentication; credential access was blocked by the calling platform. Authenticated
-real-panel reads/writes and destructive fault injection were not performed.
+On 2026-10-12 the tool schema was refreshed and the managed Skill was installed
+using skill_manage. Isolated configuration was populated through env_set; no key
+was printed or committed. Node, PyYAML, Docker Compose and curl checks passed.
 
-The current chat exposed removed skill_package and the old exec_command.skill
-argument, while AgentDock 1.0.1 expects skill_manage and skill_ref. Therefore managed
-installation and isolated environment setup were not completed. Refresh the connection
-and start a new chat; see docs/guidebook/agentdock-1.md. Do not manually overwrite
-managed storage to hide an unsuccessful installation.
+Authenticated container, website and cron list queries succeeded. A cron.status
+plan/apply/readback preserved the existing Enable state and returned verified.
+This is an idempotent API write smoke check, not deployment or rollback coverage.
+No container was started/stopped and no site configuration was written.
 
-When credentials are available through an approved configuration flow, begin with
-one read-only query, then use a disposable project/site for create/update/readback,
-invalid configuration and restore checks. Do not use production services as test
-fixtures, infer production validation from packaging, or bypass a platform denial.
+Existing website identities can include :443. Version 1.1.1 accepts an explicit
+valid port for existing sites while retaining exact ID/domain matching. New-site
+creation still uses the separate port field.
+
+Actual container creation/update/restart, website writes, fault injection and
+rollback remain unverified against the live panel. Use scoped real tasks or
+disposable resources for those checks; do not infer coverage from this smoke test.
+
+Version 1.1.2 corrects the website config type to openresty, verified with a real
+read. The earlier nginx type returned a business 500 despite HTTP 200.

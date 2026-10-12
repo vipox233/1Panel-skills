@@ -82,7 +82,7 @@ remove、kill、prune。不要把数据库或全站重启当作普通排障动�
 
 ## OpenResty / 反代 / HTTPS
 
-先查询实际站点 ID 和域名：
+先查询实际站点 ID 和域名；已有站点的 target.domain 原样使用返回值（包括可能的 :443），不要自行去掉端口。新建站点仍使用独立 port 字段：
 
 | operation | target | change |
 |---|---|---|
