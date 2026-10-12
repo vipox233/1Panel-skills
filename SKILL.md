@@ -79,10 +79,21 @@ not seize ownership of an existing site or rewrite its 1Panel settings.
 
 ## AgentDock adaptation
 
-Install through the host's official `skill_package` capability, then bind the
-active Skill in `exec_command` with `skill: "1panel-skills"`. The host supplies the
-package working directory and isolated environment. Keep runtime state outside
-the immutable package; use the host environment manager for configured values.
+On AgentDock 1.0.1 use `skill_manage` with `action: install` and a reviewed
+source archive. Then call `agentdock_context` and use the exact returned `file`
+and `skill_ref`. Command binding uses `exec_command.skill_ref`, not the older
+`skill` argument. Configure variables with `skill_manage env_set/env_list`.
+Do not hand-copy a package into managed storage or read private environment files.
+
+Managed Skills have one current content digest, not activate/rollback/version
+slots. To undo an update, reinstall a reviewed old source snapshot. The version
+in this document labels this extension release only. Keep mutable operation state
+outside the package; installation must not replace existing environment/data.
+
+If ChatGPT still exposes `skill_package` or the old `exec_command.skill`, refresh
+the AgentDock connection and start a new chat. Do not repeatedly call removed
+tools or treat an installation attempt as success. See
+[docs/guidebook/agentdock-1.md](docs/guidebook/agentdock-1.md).
 
 AgentDock 1.0.1 ACP interactions apply to hosted ACP agents, not this ordinary
 Shell/Skill workflow. Do not promise a native permission popup. Use a host-provided
