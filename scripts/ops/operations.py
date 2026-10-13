@@ -181,7 +181,7 @@ class Operations:
                 require(detail.get('id') == row['id'] and detail.get('name') == row['name'], 'TARGET_MISMATCH', 'Cron detail identity changed')
                 require(all(k in detail for k in CRON_REQUIRED), 'API_SHAPE', 'Cron detail is incomplete; no schedule update is safe')
                 require(detail['type'] == 'shell' and detail['scriptMode'] == 'input' and not detail['alertCount']
-                        and not any(nonempty(detail.get(k)) for k in ('scriptID','args','secret', *CRON_EXTRA)),
+                        and not any(nonempty(detail.get(k)) for k in ('scriptID','args','secret', *(k for k in CRON_EXTRA if k not in ('dbType','isDir')))),
                         'UNSUPPORTED', 'Schedule-only changes support complete inline shell jobs without library, argument, secret or special settings')
                 return {k: copy.deepcopy(detail[k]) for k in (*CRON_REQUIRED, *CRON_EXTRA, 'status') if k in detail}
             keys = ('id', 'name', 'type', 'spec', 'specCustom', 'groupID', 'executor', 'scriptMode',

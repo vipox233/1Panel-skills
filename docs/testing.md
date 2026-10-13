@@ -63,3 +63,10 @@ read. The earlier nginx type returned a business 500 despite HTTP 200.
   repository digests from actual local image IDs.
 - These are mock/contract/parser checks, not production deployment or rollback
   exercises. Production service changes are intentionally absent in this revision.
+
+Installed 1.2.0 passes portability lint (zero errors; one intentional AgentDock
+adaptation warning). Authenticated read-only checks found 11 containers, 3 sites,
+1 cron and 8 networks, confirmed 1panel-network, task-count response shape and
+unchanged real-site Nginx structural validation. No configuration bodies or secrets
+were printed. Shell cron DTO includes dbType/isDir defaults; these unrelated fields
+are preserved rather than causing a false rejection.

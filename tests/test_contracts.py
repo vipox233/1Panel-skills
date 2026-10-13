@@ -70,13 +70,16 @@ class ContractTests(Assertions):
         self.assertEqual(self.ops.rollback(plan)['status'],'rolled_back')
         self.assertEqual(self.api.https['SSL']['id'],2)
     def test_existing_unicode_cron_preserves_user_and_script(self):
-        self.api.crons=[{'id':4,'name':'用量统计','type':'shell','spec':'0 */1 * * *','user':'root','script':'existing-command','executor':'bash','scriptMode':'input','status':'Enable','alertCount':0,'groupID':0,'specCustom':True,'command':'','containerName':'','retainCopies':7,'retryTimes':0,'timeout':120,'ignoreErr':False,'scriptID':0,'args':'','secret':''}]
+        self.api.crons=[{'id':4,'name':'用量统计','type':'shell','spec':'0 */1 * * *','user':'root','script':'existing-command','executor':'bash','scriptMode':'input','status':'Enable','alertCount':0,'groupID':0,'specCustom':True,'command':'','containerName':'','retainCopies':7,'retryTimes':0,'timeout':120,'ignoreErr':False,'scriptID':0,'args':'','secret':'','dbType':'mysql','isDir':True}]
         plan=self.ops.plan({'operation':'cron.schedule','target':{'name':self.api.crons[0]['name'],'id':4},'change':{'spec':'0 */2 * * *'}})
         body=self.store.load(plan['plan_id'])['payload']
         self.assertEqual(body['user'],'root'); self.assertEqual(body['script'],'existing-command')
+        self.assertEqual(body['dbType'],'mysql'); self.assertIs(body['isDir'],True)
         self.assertEqual(self.ops.apply(plan)['status'],'verified')
+        self.assertEqual(self.api.crons[0]['dbType'],'mysql'); self.assertIs(self.api.crons[0]['isDir'],True)
         self.assertEqual(self.ops.rollback(plan)['status'],'rolled_back')
         self.assertEqual(self.api.crons[0]['spec'],'0 */1 * * *')
+        self.assertEqual(self.api.crons[0]['dbType'],'mysql'); self.assertIs(self.api.crons[0]['isDir'],True)
     def test_new_cron_uses_valid_executor_and_blocks_changed_script(self):
         script=Path(self.tmp.name)/'sample.py'; script.write_text('print(1)')
         plan=self.ops.plan({'operation':'cron.create','target':{'name':'sample'},'change':{'spec':'0 * * * *','script':str(script),'user':'agentdock'}})
