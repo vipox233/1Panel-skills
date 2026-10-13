@@ -15,7 +15,7 @@ import time
 import uuid
 from .common import (OpsError, Store, obj, text, name, integer, boolean,
                      require, digest, records, content)
-from .validators import (load_yaml, validate_compose, lint_nginx, port_bindings,
+from .validators import (load_yaml, validate_compose, lint_nginx,
                          check_ports, occupied_ports, http_url, cron_spec)
 
 PREFIX = '/api/v2'
@@ -202,7 +202,9 @@ class Operations:
             available = self.pages('/containers/network/search', {'info': ''})
             require(all(any(row.get('name', row.get('Name')) == n for row in available) for n in networks),
                     'TARGET_MISSING', 'Every allowed external network must exist in the bounded inventory')
-        prior = port_bindings(load_yaml(before['content'])) if before else []
+        # Parse both versions with their own env; raw YAML can hide a data-path change.
+        previous = validate_compose(before['content'], project, before['env'], roots, host, networks, True) if before else None
+        prior = previous['ports'] if previous else []
         check_ports(report['ports'], occupied_ports(), prior)
         candidates = load_yaml(source)['services']
         own_names = set()
@@ -213,8 +215,8 @@ class Operations:
             require(set(prior_services) <= set(candidates), 'SERVICE_REMOVAL',
                     'Removing existing services is not part of this update workflow')
             require(set(candidates) <= set(prior_services), 'SERVICE_ADDITION', 'Adding services is a separate deployment; ordinary updates preserve the service set')
-            for key, old in prior_services.items():
-                require(old.get('volumes', []) == candidates[key].get('volumes', []), 'MOUNT_CHANGE',
+            for key in prior_services:
+                require(previous['mounts'].get(key, []) == report['mounts'].get(key, []), 'MOUNT_CHANGE',
                         'Changing existing persistent mounts needs a separate migration, not an ordinary update')
         for container in self.container_rows():
             for value in candidates.values():

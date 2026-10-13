@@ -51,7 +51,7 @@ class ContractTests(Assertions):
     def test_update_undo_preserves_actual_image_and_env(self):
         self.api.compose={'name':'demo','configFile':'/tmp/demo.yml','content':GOOD,'env':'SETTING=old','createdBy':'1Panel',
                           'containers':[{'name':'demo-web-1','containerID':'c1'}],'containerCount':1,'runningCount':1}
-        with patch('ops.operations.validate_compose',return_value={'ports':[],'warnings':[]}), patch('ops.operations.occupied_ports',return_value=[]):
+        with patch('ops.operations.validate_compose',return_value={'ports':[],'warnings':[],'mounts':{}}), patch('ops.operations.occupied_ports',return_value=[]):
             plan=self.ops.plan({'operation':'compose.update','target':{'name':'demo'},'change':{'content':GOOD.replace('a'*64,'b'*64),'env':'SETTING=new'}})
             receipt=self.store.load(plan['plan_id']); undo=receipt['rollback_payload']
             self.assertEqual(load_yaml(undo['content'])['services']['web']['image'], 'sha256:'+'a'*64)

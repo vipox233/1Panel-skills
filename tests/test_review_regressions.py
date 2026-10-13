@@ -71,7 +71,7 @@ class ReviewWorkflowTests(Assertions):
     def test_service_addition_rejected_before_write(self):
         self.compose_fixture(); cfg=load_yaml(GOOD); cfg['services']['extra']={'image':'sha256:'+'d'*64}
         import yaml
-        with patch('ops.operations.validate_compose',return_value={'ports':[],'warnings':[]}), patch('ops.operations.occupied_ports',return_value=[]):
+        with patch('ops.operations.validate_compose',return_value={'ports':[],'warnings':[],'mounts':{}}), patch('ops.operations.occupied_ports',return_value=[]):
             self.denied('SERVICE_ADDITION',self.ops.plan,{'operation':'compose.update','target':{'name':'demo'},'change':{'content':yaml.safe_dump(cfg)}})
         self.assertEqual(self.api.writes,[])
     def test_cron_special_fields_never_silently_dropped(self):
@@ -126,7 +126,7 @@ class ReviewRecoveryTests(Assertions):
     compose_fixture = ReviewWorkflowTests.compose_fixture
     def pending_plan(self):
         self.compose_fixture()
-        with patch('ops.operations.validate_compose',return_value={'ports':[],'warnings':[]}), patch('ops.operations.occupied_ports',return_value=[]):
+        with patch('ops.operations.validate_compose',return_value={'ports':[],'warnings':[],'mounts':{}}), patch('ops.operations.occupied_ports',return_value=[]):
             plan=self.ops.plan({'operation':'compose.update','target':{'name':'demo'},'change':{'content':GOOD.replace('a'*64,'b'*64),'env':'SETTING=new'}})
         saved=self.store.load(plan['plan_id']); saved.update(status='uncertain',submitted_at=1000,task_id=saved['payload']['taskID']); self.store.save(saved)
         return plan
@@ -163,7 +163,7 @@ class ReviewRecoveryTests(Assertions):
             result=original(method,path,body)
             if path=='/api/v2/containers/compose/update': self.api.task_status='Success'
             return result
-        with patch('ops.operations.validate_compose',return_value={'ports':[],'warnings':[]}), patch('ops.operations.occupied_ports',return_value=[]), patch.object(self.api,'call',side_effect=completed_restore):
+        with patch('ops.operations.validate_compose',return_value={'ports':[],'warnings':[],'mounts':{}}), patch('ops.operations.occupied_ports',return_value=[]), patch.object(self.api,'call',side_effect=completed_restore):
             self.assertEqual(self.ops.rollback(plan)['status'],'rolled_back')
         self.assertEqual(self.api.compose['env'],'SETTING=old'); self.assertEqual(len(self.api.writes),1)
     def test_partial_failure_does_not_overwrite_external_drift(self):
@@ -179,9 +179,9 @@ class ReviewRecoveryTests(Assertions):
     def test_allowed_network_must_exist(self):
         def network_call(items):
             return lambda method,path,body=None: {'items':items,'total':len(items)} if path=='/api/v2/containers/network/search' else test_contracts.StatefulPanel.call(self.api,method,path,body)
-        with patch('ops.operations.validate_compose',return_value={'ports':[],'warnings':[]}), patch('ops.operations.occupied_ports',return_value=[]), patch.object(self.api,'call',side_effect=network_call([])):
+        with patch('ops.operations.validate_compose',return_value={'ports':[],'warnings':[],'mounts':{}}), patch('ops.operations.occupied_ports',return_value=[]), patch.object(self.api,'call',side_effect=network_call([])):
             self.denied('TARGET_MISSING',self.ops._compose_checks,GOOD,'demo','',{'allow_networks':['1panel-network']})
-        with patch('ops.operations.validate_compose',return_value={'ports':[],'warnings':[]}), patch('ops.operations.occupied_ports',return_value=[]), patch.object(self.api,'call',side_effect=network_call([{'name':'1panel-network'}])):
+        with patch('ops.operations.validate_compose',return_value={'ports':[],'warnings':[],'mounts':{}}), patch('ops.operations.occupied_ports',return_value=[]), patch.object(self.api,'call',side_effect=network_call([{'name':'1panel-network'}])):
             self.ops._compose_checks(GOOD,'demo','',{'allow_networks':['1panel-network']})
     def test_digest_image_runtime_mismatch_is_not_verified(self):
         plan=self.pending_plan(); saved=self.store.load(plan['plan_id']); saved['options']['expected_images']={'web':'nginx@sha256:'+'b'*64}

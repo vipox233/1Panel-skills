@@ -159,7 +159,7 @@ def lint_compose(config, project, bind_roots=(), allow_host_network=False, allow
         for value in obj(config.get(kind,{}),kind).values():
             require(isinstance(value,dict) and 'file' not in value and 'environment' not in value and not value.get('external'),
                     'UNSAFE_MOUNT',f'{kind} must not load host files or pre-existing resources')
-    return {'services':list(services),'ports':port_bindings(config),'warnings':warnings,'images':{k:v['image'] for k,v in services.items()}}
+    return {'services':list(services),'ports':port_bindings(config),'warnings':warnings,'images':{k:v['image'] for k,v in services.items()},'mounts':{k:v.get('volumes',[]) for k,v in services.items()}}
 
 def validate_compose(source, project, env='', bind_roots=(), allow_host_network=False, allowed_networks=(), allow_mutable_images=False):
     raw=load_yaml(source)

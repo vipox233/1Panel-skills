@@ -165,19 +165,19 @@ class WorkflowTests(Assertions):
         self.assertEqual(result['status'], 'rolled_back'); self.assertEqual(self.api.config, OLD)
         self.assertEqual(len(self.api.writes), 2)
     def test_new_resources_have_no_delete_undo(self):
-        with patch('ops.operations.validate_compose', return_value={'ports':[], 'warnings':[]}), patch('ops.operations.occupied_ports', return_value=[]):
+        with patch('ops.operations.validate_compose', return_value={'ports':[], 'warnings':[], 'mounts':{}}), patch('ops.operations.occupied_ports', return_value=[]):
             plan = self.ops.plan({'operation':'compose.create','target':{'name':'demo'},'change':{'content':GOOD}})
             self.ops.apply(plan)
         self.denied('NOT_ROLLBACKABLE', self.ops.rollback, plan)
     def test_async_creation_stays_pending(self):
         self.api.task_status = 'Waiting'
-        with patch('ops.operations.validate_compose', return_value={'ports':[], 'warnings':[]}), patch('ops.operations.occupied_ports', return_value=[]):
+        with patch('ops.operations.validate_compose', return_value={'ports':[], 'warnings':[], 'mounts':{}}), patch('ops.operations.occupied_ports', return_value=[]):
             plan = self.ops.plan({'operation':'compose.create','target':{'name':'demo'},'change':{'content':GOOD}})
             result = self.ops.apply(plan)
         self.assertEqual(result['status'], 'submitted')
         self.api.task_status = 'Success'; self.assertEqual(self.ops.verify(plan)['status'], 'verified')
     def test_missing_task_not_success(self):
-        with patch('ops.operations.validate_compose', return_value={'ports':[], 'warnings':[]}), patch('ops.operations.occupied_ports', return_value=[]):
+        with patch('ops.operations.validate_compose', return_value={'ports':[], 'warnings':[], 'mounts':{}}), patch('ops.operations.occupied_ports', return_value=[]):
             plan = self.ops.plan({'operation':'compose.create','target':{'name':'demo'},'change':{'content':GOOD}})
             self.ops.apply(plan)
         saved = self.store.load(plan['plan_id']); saved['status'] = 'submitted'; self.store.save(saved)
@@ -258,7 +258,7 @@ class CliTests(unittest.TestCase):
         return proc.returncode, json.loads(proc.stdout)
     def test_status_offline(self):
         code, data = self.invoke({'skill_action':'status'})
-        self.assertEqual(code,0); self.assertEqual(data['version'],'1.2.1'); self.assertFalse(data['live_checked'])
+        self.assertEqual(code,0); self.assertEqual(data['version'],'1.2.2'); self.assertFalse(data['live_checked'])
     def test_no_unknown_fallback(self):
         code,data = self.invoke({'skill_action':'shell','command':'echo should-not-run'})
         self.assertEqual(code,1); self.assertEqual(data['code'],'UNKNOWN_ACTION')
