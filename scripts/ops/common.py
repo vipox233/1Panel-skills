@@ -6,11 +6,12 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 import tempfile
 import time
 import uuid
 
-VERSION = '1.2.0'
+VERSION = '1.2.1'
 MAX_INPUT = 1024 * 1024
 
 class OpsError(Exception):
@@ -87,10 +88,15 @@ def content(data):
     raise OpsError('API_SHAPE', 'The API did not return readable configuration content')
 
 def secure_dir(path: Path):
-    require(not path.is_symlink(), 'UNSAFE_PATH', 'State directory must not be a symlink')
-    path.mkdir(parents=True, exist_ok=True, mode=0o700)
-    require(path.is_dir(), 'UNSAFE_PATH', 'State path is not a directory')
-    path.chmod(0o700)
+    # Never repair permissions on an existing caller-selected directory.
+    try:
+        path.mkdir(parents=True, mode=0o700)
+    except FileExistsError:
+        pass
+    info = path.lstat()
+    require(stat.S_ISDIR(info.st_mode) and info.st_uid == os.getuid()
+            and stat.S_IMODE(info.st_mode) == 0o700,
+            'UNSAFE_PATH', 'Use a dedicated state directory owned by the current user with mode 0700; existing permissions are not changed')
     return path
 
 def atomic_write(path: Path, data: bytes, mode=0o600):

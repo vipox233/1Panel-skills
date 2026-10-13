@@ -1,6 +1,6 @@
 # AgentDock 1.0.1 接入说明
 
-本扩展的 1.2.0 是项目发布编号，不是 AgentDock 的安装版本槽。AgentDock 1.0.1
+本扩展的 1.2.1 是项目发布编号，不是 AgentDock 的安装版本槽。AgentDock 1.0.1
 以 content digest 管理同名 Skill 的当前内容；更新用重新安装，恢复用经过审查的
 旧源码快照，不调用已移除的 activate/rollback。
 

@@ -37,3 +37,24 @@ backup platform or production-site migration was introduced.
 Validation distinguishes local and mock tests, actual Compose parser checks, and
 pending authenticated live-panel integration. See docs/testing.md; installation is
 not evidence that production write flows have been verified.
+
+## 1.2.1 — 最后一轮 bot 意见取舍
+
+用户要求优先处理实际 P1，避免防御性扩张，本轮后停止跟随审查 bot。
+采纳健康检查预检和状态目录权限两项 P1：所有探测参数在计划和执行前校验，
+探测程序异常会保存可恢复的失败状态；已有目录不再 chmod，错误路径保持原权限。
+顺带采纳代理切换 P2，清理旧 HTTP/SOCKS 大小写变量，保留无关环境设置。
+
+不采纳“撤销客户端扩展”P1：1.2.0 的可选响应上限保持现有调用默认行为，
+保留签名/查询实现；为了形式上的零差异另做流量拦截收益不足。本轮未再改客户端。
+有意保留这一处最小上游差异，后续同步需关注；不声称上游文件逐字未改。
+
+其余五项 P2 暂缓：旧 Compose 端口插值、未启用 profile 的镜像验证、静态旧版本
+回滚完整性、创建站点/代理的逐字段验证、示例滚动 release 改独立标签。
+前两项可能拒绝有效配置或误报失败；创建操作当前验证只确认资源存在；静态回滚
+不应被当作完整性证明；示例尚未启用，滚动标签不是固定发布版本。
+这些限制不扩展为新框架或额外守护进程，今后有实际使用需求再单独处理。
+
+验证：96 项目标主机测试（含真实 Compose 配置解析）、TypeScript 检查和构建；
+模拟检查覆盖错误健康参数零写入、探测异常后人工回滚、公共目录权限不变及代理切换。
+保持原 PR 未合并。没有生产容器、站点或定时任务配置写入。

@@ -38,6 +38,8 @@ def container_proxy(request):
         env = dict(x.split('=', 1) for x in env)
     obj(env, 'environment')
     exclusions = text(request.get('no_proxy', 'localhost,127.0.0.1,::1'), 'no_proxy', 4000)
+    for key in ('HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy'):
+        env.pop(key, None)
     if p.scheme.startswith('socks'):
         env.update(ALL_PROXY=url, all_proxy=url)
     else:

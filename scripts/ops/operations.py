@@ -229,11 +229,8 @@ class Operations:
         options = copy.deepcopy(obj(request.get('options', {}), 'options'))
         warnings = []
         health = request.get('health')
-        if health:
-            obj(health, 'health'); http_url(health.get('url'))
-            codes = health.get('codes', [200])
-            require(isinstance(codes, list) and all(type(c) is int and 100 <= c <= 599 for c in codes),
-                    'BAD_INPUT', 'health.codes must be HTTP status numbers')
+        if health is not None:
+            validate_health(health)
         if action.startswith('compose.'):
             name(target.get('name'), 'project')
         elif action == 'container.operate':
@@ -400,6 +397,8 @@ class Operations:
             require(plan['status'] == 'planned', 'ALREADY_SUBMITTED', 'This plan was already used; verify it instead of retrying')
             require(time.time() - plan['created_at'] <= 1800, 'PLAN_EXPIRED', 'Plan expired; inspect the current target and plan again')
             self._other_pending(plan)
+            if plan.get('health') is not None:
+                validate_health(plan['health'])
             if plan['action'] == 'cron.create':
                 script = Path(plan['options']['script_path'])
                 require(script.is_file() and not script.is_symlink() and digest(script.read_bytes().hex()) == plan['options']['script_digest'], 'TARGET_CHANGED', 'Scheduled script changed after planning')
@@ -481,8 +480,13 @@ class Operations:
                 running = row.get('containerCount', 0) > 0 and row.get('runningCount') == row.get('containerCount')
             task_ok = state is None or str(state).lower() in ('success', 'completed')
             health = None
+            probe_error = False
             if matched and running and task_ok and plan.get('health'):
-                health = probe_http(plan['health'])
+                try:
+                    health = probe_http(plan['health'])
+                except (OpsError, OSError) as error:
+                    probe_error = True
+                    health = {'healthy': False, 'error': error.code if isinstance(error, OpsError) else 'PROBE_UNAVAILABLE'}
             healthy = health is None or health['healthy']
             if plan['action'].startswith('compose.') and matched and not rollback:
                 refs = actual.get('image_refs', {})
@@ -505,7 +509,7 @@ class Operations:
             plan['last_verified_at'] = time.time()
             self.store.save(plan)
             summary = self.store.summary(plan)
-        if (not rollback and matched and task_ok and health is not None and not healthy
+        if (not rollback and not probe_error and matched and task_ok and health is not None and not healthy
                 and plan['action'] in ('website.config', 'openresty.config', 'proxy.config')):
             return self.rollback({'plan_id': plan['plan_id'], 'automatic': True})
         return summary
@@ -587,19 +591,35 @@ class Operations:
         return self.verify({'plan_id': plan['plan_id']})
 
 
+def validate_health(request):
+    """Shared preflight for plans, saved plans and standalone probes."""
+    import ipaddress
+    obj(request, 'health')
+    parsed = http_url(request.get('url'))
+    integer(request.get('timeout', 10), 'timeout', 1, 60)
+    codes = request.get('codes', [200])
+    require(isinstance(codes, list) and bool(codes)
+            and all(type(c) is int and 100 <= c <= 599 for c in codes),
+            'BAD_INPUT', 'health.codes must be a nonempty list of HTTP status numbers')
+    if 'resolve_ip' in request:
+        address = text(request['resolve_ip'], 'resolve_ip', 100)
+        try:
+            ipaddress.ip_address(address)
+        except ValueError as error:
+            raise OpsError('BAD_INPUT', 'resolve_ip must be an IP address') from error
+    return parsed
+
+
 def probe_http(request):
     """Use curl for correct TLS/SNI and optional local-origin --resolve checks."""
     import shutil
-    obj(request); parsed = http_url(request.get('url'))
+    parsed = validate_health(request)
     curl = shutil.which('curl'); require(curl is not None, 'DEPENDENCY', 'curl is required for HTTP health checks')
     timeout = integer(request.get('timeout', 10), 'timeout', 1, 60)
     command = [curl, '--silent', '--show-error', '--noproxy', '*', '--max-time', str(timeout),
                '--output', os.devnull, '--write-out', '%{http_code} %{time_connect} %{time_starttransfer} %{time_total}']
     address = request.get('resolve_ip')
     if address:
-        import ipaddress
-        try: ipaddress.ip_address(address)
-        except ValueError as e: raise OpsError('BAD_INPUT', 'resolve_ip must be an IP address') from e
         address = f'[{address}]' if ':' in address else address
         command += ['--resolve', f"{parsed.hostname}:{parsed.port or (443 if parsed.scheme == 'https' else 80)}:{address}"]
     command += ['--url', request['url']]

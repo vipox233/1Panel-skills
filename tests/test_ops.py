@@ -258,7 +258,7 @@ class CliTests(unittest.TestCase):
         return proc.returncode, json.loads(proc.stdout)
     def test_status_offline(self):
         code, data = self.invoke({'skill_action':'status'})
-        self.assertEqual(code,0); self.assertEqual(data['version'],'1.2.0'); self.assertFalse(data['live_checked'])
+        self.assertEqual(code,0); self.assertEqual(data['version'],'1.2.1'); self.assertFalse(data['live_checked'])
     def test_no_unknown_fallback(self):
         code,data = self.invoke({'skill_action':'shell','command':'echo should-not-run'})
         self.assertEqual(code,1); self.assertEqual(data['code'],'UNKNOWN_ACTION')
