@@ -32,7 +32,7 @@ def run(request):
                         'upstream_client': (root/'dist/scripts/client.js').is_file()}
         return {'ok': True, 'version': VERSION, 'dependencies': dependencies,
                 'configured': bool(os.environ.get('ONEPANEL_BASE_URL') and os.environ.get('ONEPANEL_API_KEY')),
-                'actions': ['status', 'query', 'plan', 'apply', 'verify', 'rollback', 'record', 'compose.validate',
+                'actions': ['status', 'query', 'plan', 'apply', 'verify', 'rollback', 'reconcile', 'record', 'compose.validate',
                             'nginx.validate', 'http.check', 'proxy.compose', 'proxy.chain', 'static.release', 'static.rollback', 'static.sync'],
                 'operations': ['compose.create', 'compose.update', 'compose.rebuild', 'container.operate',
                                'website.create', 'website.config', 'website.https', 'openresty.config',
@@ -42,7 +42,8 @@ def run(request):
     if action == 'compose.validate':
         from ops.validators import validate_compose
         return {'ok': True, **validate_compose(request.get('content'), request.get('project'), request.get('env', ''),
-                                              request.get('bind_roots', []), request.get('allow_host_network', False))}
+                                              request.get('bind_roots', []), request.get('allow_host_network', False),
+                                              request.get('allow_networks', []), request.get('allow_mutable_images', False))}
     if action == 'nginx.validate':
         from ops.validators import lint_nginx
         return {'ok': True, **lint_nginx(request.get('content'), request.get('previous'))}
@@ -56,7 +57,7 @@ def run(request):
     if action == 'record':
         from ops.common import Store
         store = Store(); return store.summary(store.load(request.get('plan_id')))
-    if action not in ('query', 'plan', 'apply', 'verify', 'rollback'):
+    if action not in ('query', 'plan', 'apply', 'verify', 'rollback', 'reconcile'):
         raise OpsError('UNKNOWN_ACTION', 'Unknown skill_action; run actions to see the supported entrypoints')
     from ops.api import Panel
     api = Panel()
@@ -79,7 +80,8 @@ def main():
             candidate = directory / (uuid.uuid4().hex + '.yaml')
             atomic_write(candidate, result['content'].encode())
             result['candidate_path'] = str(candidate)
-            result['content_preview'] = result.pop('content')
+            result.pop('content')
+            result['summary'] = 'Private candidate saved; configuration content is intentionally omitted from output.'
     except OpsError as error:
         result = error.result()
     except (ValueError, TypeError, KeyError):

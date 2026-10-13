@@ -20,9 +20,19 @@ from .validators import (load_yaml, validate_compose, lint_nginx, port_bindings,
 
 PREFIX = '/api/v2'
 MUTABLE_STATUS = {'planned', 'submitted', 'uncertain', 'verified', 'failed',
-                  'rollback_submitted', 'rolled_back', 'rollback_uncertain'}
+                  'rollback_submitted', 'rolled_back', 'rollback_uncertain', 'reconciled_unchanged'}
 RECEIPT_FIELDS = {'status', 'plan_digest', 'result', 'submitted_at', 'task_id',
-                  'applied_digest', 'rollback_task_id', 'last_verified_at'}
+                  'applied_digest', 'rollback_task_id', 'last_verified_at', 'reconcile_observation'}
+
+CRON_REQUIRED = ('id','name','type','groupID','spec','specCustom','executor','scriptMode',
+                 'script','command','containerName','user','retainCopies','retryTimes','timeout',
+                 'ignoreErr','scriptID','args','secret','alertCount')
+CRON_EXTRA = ('appID','website','exclusionRules','dbType','dbName','url','isDir','sourceDir',
+              'snapshotRule','sourceAccountIDs','downloadAccountID','alertTitle','alertMethod','scopes')
+
+def nonempty(value):
+    if isinstance(value, dict): return any(nonempty(v) for v in value.values())
+    return bool(value)
 
 
 def plan_hash(plan):
@@ -105,7 +115,7 @@ class Operations:
         source = content(self.call('POST', '/files/content', {'path': path, 'expand': False}))
         env = row.get('env')
         require(isinstance(env, str), 'API_SHAPE', 'Compose inventory did not include its environment text')
-        images = {}
+        images = {}; image_refs = {}
         for item in row.get('containers', []):
             info = self.api.query('containers', 'inspectContainer', {'id': item['containerID'], 'type': 'container', 'detail': ''})
             if isinstance(info, str): info = json.loads(info)
@@ -117,8 +127,9 @@ class Operations:
             require(isinstance(image, str) and re.fullmatch(r'sha256:[0-9a-f]{64}', image), 'API_SHAPE', 'Inspection did not expose the actual image ID')
             require(service not in images or images[service] == image, 'MIXED_IMAGES', 'Service replicas use different images; no single rollback version can be assumed')
             images[service] = image
+            image_refs[service] = info['Config'].get('Image', '')
         return {'name': project, 'path': path, 'content': source, 'env': env,
-                'createdBy': row.get('createdBy', ''), 'images': images}
+                'createdBy': row.get('createdBy', ''), 'images': images, 'image_refs': image_refs}
 
     def proxy(self, target, required=True):
         self.website(target)
@@ -165,6 +176,14 @@ class Operations:
                 return None
             if 'id' in target:
                 require(row.get('id') == target['id'], 'TARGET_MISMATCH', 'Cron task identity changed')
+            if action == 'cron.schedule':
+                detail = obj(self.api.query('cronjobs', 'loadCronjobInfo', {'id': row['id']}), 'cron detail')
+                require(detail.get('id') == row['id'] and detail.get('name') == row['name'], 'TARGET_MISMATCH', 'Cron detail identity changed')
+                require(all(k in detail for k in CRON_REQUIRED), 'API_SHAPE', 'Cron detail is incomplete; no schedule update is safe')
+                require(detail['type'] == 'shell' and detail['scriptMode'] == 'input' and not detail['alertCount']
+                        and not any(nonempty(detail.get(k)) for k in ('scriptID','args','secret', *CRON_EXTRA)),
+                        'UNSUPPORTED', 'Schedule-only changes support complete inline shell jobs without library, argument, secret or special settings')
+                return {k: copy.deepcopy(detail[k]) for k in (*CRON_REQUIRED, *CRON_EXTRA, 'status') if k in detail}
             keys = ('id', 'name', 'type', 'spec', 'specCustom', 'groupID', 'executor', 'scriptMode',
                     'script', 'command', 'containerName', 'user', 'retainCopies', 'retryTimes',
                     'timeout', 'ignoreErr', 'status', 'alertCount')
@@ -176,7 +195,13 @@ class Operations:
         require(isinstance(roots, list) and all(isinstance(p, str) and p.startswith('/') for p in roots),
                 'BAD_INPUT', 'bind_roots must explicitly list absolute data directories')
         host = boolean(options.get('allow_host_network', False), 'allow_host_network')
-        report = validate_compose(source, project, env, roots, host)
+        networks = options.get('allow_networks', [])
+        mutable = boolean(options.get('allow_mutable_images', False), 'allow_mutable_images')
+        report = validate_compose(source, project, env, roots, host, networks, mutable)
+        if networks:
+            available = self.pages('/containers/network/search', {'info': ''})
+            require(all(any(row.get('name', row.get('Name')) == n for row in available) for n in networks),
+                    'TARGET_MISSING', 'Every allowed external network must exist in the bounded inventory')
         prior = port_bindings(load_yaml(before['content'])) if before else []
         check_ports(report['ports'], occupied_ports(), prior)
         candidates = load_yaml(source)['services']
@@ -187,6 +212,7 @@ class Operations:
             prior_services = load_yaml(before['content']).get('services', {})
             require(set(prior_services) <= set(candidates), 'SERVICE_REMOVAL',
                     'Removing existing services is not part of this update workflow')
+            require(set(candidates) <= set(prior_services), 'SERVICE_ADDITION', 'Adding services is a separate deployment; ordinary updates preserve the service set')
             for key, old in prior_services.items():
                 require(old.get('volumes', []) == candidates[key].get('volumes', []), 'MOUNT_CHANGE',
                         'Changing existing persistent mounts needs a separate migration, not an ordinary update')
@@ -239,6 +265,7 @@ class Operations:
             env = text(change.get('env', before['env'] if before else ''), 'env', empty=True)
             report = self._compose_checks(source, target['name'], env, options, before)
             warnings.extend(report['warnings'])
+            options['expected_images'] = report.get('images', {})
             if action == 'compose.create':
                 payload = {'name': target['name'], 'dirName': target['name'], 'from': 'edit',
                            'file': source, 'env': env, 'forcePull': boolean(change.get('force_pull', False), 'force_pull'), 'taskID': task_id}
@@ -257,6 +284,8 @@ class Operations:
                 rollback_payload = {**payload, 'content': dump_yaml(rollback_config), 'env': before['env'], 'forcePull': False}
             warnings.append('Undo preserves the previous local image IDs where available and does not roll back application/database data. Old images must remain present.')
         elif action == 'compose.rebuild':
+            report = self._compose_checks(before['content'], target['name'], before['env'], options, before)
+            warnings.extend(report['warnings']); options['expected_images'] = report.get('images', {})
             payload = {'name': target['name'], 'path': before['path'], 'operation': 'rebuild', 'withFile': False, 'force': False}
             warnings.append('Rebuild stops and recreates this project; it does not delete its persistent volumes.')
         elif action == 'container.operate':
@@ -376,6 +405,8 @@ class Operations:
                 require(script.is_file() and not script.is_symlink() and digest(script.read_bytes().hex()) == plan['options']['script_digest'], 'TARGET_CHANGED', 'Scheduled script changed after planning')
             current = self.snapshot(plan['action'], plan['target'])
             require(digest(current) == digest(plan['before']), 'TARGET_CHANGED', 'Target changed after planning; no write was sent')
+            if plan['action'] == 'compose.rebuild':
+                self._compose_checks(current['content'], plan['target']['name'], current['env'], plan['options'], current)
             if plan['action'] in ('compose.create', 'compose.update'):
                 body = plan['payload']
                 self._compose_checks(body.get('content', body.get('file')), plan['target']['name'],
@@ -422,12 +453,15 @@ class Operations:
             return actual.get('enable') is True and actual.get('websiteSSLId') == body['websiteSSLId'] and actual.get('httpConfig') == body['httpConfig']
         if action == 'cron.status': return actual.get('status') == body['status']
         if action in ('cron.create', 'cron.schedule'):
+            if action == 'cron.schedule':
+                return actual is not None and all(actual.get(k) == v for k, v in body.items())
             return actual is not None and all(actual.get(k) == v for k, v in body.items() if k in ('name', 'spec', 'script', 'user'))
         return False
 
     def verify(self, request):
         with self.store.lock():
             plan = self.load_plan(request)
+            if plan['status'] == 'reconciled_unchanged': return self.store.summary(plan)
             require(plan['status'] != 'planned', 'NOT_SUBMITTED', 'Plan has not been applied')
             rollback = plan['status'].startswith('rollback') or plan['status'] == 'rolled_back'
             state = self.task_state(plan.get('rollback_task_id') if rollback else plan.get('task_id'))
@@ -435,7 +469,9 @@ class Operations:
                 plan['result'] = {'task_status': state, 'message': 'Task is still running or its status is unfamiliar'}
                 self.store.save(plan); return self.store.summary(plan)
             if (plan.get('task_id') or plan.get('rollback_task_id')) and state is None:
-                plan['result'] = {'message': 'Task receipt not found yet; not declaring a deployment successful'}
+                actual = self.snapshot(plan['action'], plan['target'])
+                plan['result'] = {'unchanged': digest(actual) == digest(plan['before']),
+                                  'message': 'Task receipt missing. Do not retry apply. Use reconcile only after the user confirms no delayed operation can still execute.'}
                 self.store.save(plan); return self.store.summary(plan)
             actual = self.snapshot(plan['action'], plan['target'])
             matched = self.expected_matches(plan, actual, rollback)
@@ -448,11 +484,18 @@ class Operations:
             if matched and running and task_ok and plan.get('health'):
                 health = probe_http(plan['health'])
             healthy = health is None or health['healthy']
+            if plan['action'].startswith('compose.') and matched and not rollback:
+                refs = actual.get('image_refs', {})
+                for service, image in plan.get('options', {}).get('expected_images', {}).items():
+                    if '@sha256:' in image or image.startswith('sha256:'):
+                        expected = image.rsplit('@', 1)[-1]
+                        running = running and (refs.get(service, '').rsplit('@', 1)[-1] == expected or actual.get('images', {}).get(service) == expected)
             if matched and running and task_ok and healthy:
                 plan['status'] = 'rolled_back' if rollback else 'verified'
                 plan['applied_digest'] = digest(actual)
                 plan['result'] = {'configuration_matches': True, 'runtime_running': running,
                                   'task_status': state, 'health': health,
+                                  'deployed_images': actual.get('images', {}) if isinstance(actual, dict) else {},
                                   'message': 'Readback verified; application health is only checked when a health URL is supplied'}
             else:
                 plan['status'] = 'rollback_uncertain' if rollback else 'failed'
@@ -467,6 +510,51 @@ class Operations:
             return self.rollback({'plan_id': plan['plan_id'], 'automatic': True})
         return summary
 
+    def partial_compose_failure(self, plan, actual, state):
+        if plan['action'] != 'compose.update' or str(state).lower() not in ('failed', 'error') or not isinstance(actual, dict):
+            return False
+        before, body = plan['before'], plan['payload']
+        return (all(actual.get(k) == before.get(k) for k in ('name', 'path', 'createdBy'))
+                and same_text(actual.get('content', ''), before['content'])
+                and actual.get('env') == body['env'])
+
+    def reconcile(self, request):
+        """Close an unchanged abandoned write only after operator confirmation and stable reads.
+
+        This records an operator-assisted recovery, never proof the write did not execute.
+        The caller must not manufacture the acknowledgement from elapsed time alone.
+        """
+        with self.store.lock():
+            plan = self.load_plan(request)
+            require(request.get('plan_digest') == plan['plan_digest'], 'PLAN_CHANGED', 'Use the exact plan digest')
+            require(plan['status'] in ('submitted', 'uncertain') and plan.get('task_id'), 'BAD_PLAN', 'Only missing-receipt forward writes can be reconciled')
+            require(request.get('acknowledge_no_inflight') is True, 'NEEDS_CONFIRMATION', 'The user must confirm the old request/task cannot still execute; do not infer this from time or a snapshot')
+            now = time.time()
+            require(now - plan.get('submitted_at', plan['created_at']) >= 300, 'PENDING_OPERATION', 'Wait at least five minutes before recovery')
+            try:
+                require(self.task_state(plan['task_id']) is None, 'PENDING_OPERATION', 'A task receipt exists; use verify')
+                count = self.api.query('task-center', 'countExecutingTasks', {})
+                require(type(count) is int and count == 0, 'PENDING_OPERATION', 'Executing count is nonzero or unfamiliar')
+            except Exception:
+                plan.pop('reconcile_observation', None); self.store.save(plan)
+                raise
+            actual = self.snapshot(plan['action'], plan['target'])
+            current = digest(actual)
+            if current != digest(plan['before']):
+                plan.pop('reconcile_observation', None); self.store.save(plan)
+                raise OpsError('TARGET_CHANGED', 'Target differs from before; preserve evidence and investigate')
+            observation = plan.get('reconcile_observation')
+            if not observation or observation.get('digest') != current:
+                plan['reconcile_observation'] = {'at': now, 'digest': current}
+                plan['result'] = {'message': 'First unchanged observation recorded; repeat reconciliation after at least 60 seconds with user confirmation still valid'}
+            else:
+                require(now - observation['at'] >= 60, 'PENDING_OPERATION', 'Need two unchanged observations at least 60 seconds apart')
+                plan['status'] = 'reconciled_unchanged'
+                plan['result'] = {'unchanged': True, 'operator_confirmed_no_inflight': True,
+                                  'message': 'Recovery closed this record without writes. This is not deployment success or proof the original request never executed; create a fresh plan for future work.'}
+            self.store.save(plan)
+            return self.store.summary(plan)
+
     def rollback(self, request):
         with self.store.lock():
             plan = self.load_plan(request)
@@ -479,7 +567,7 @@ class Operations:
             require(not plan.get('task_id') or str(state).lower() in ('success', 'failed', 'error', 'completed'),
                     'PENDING_OPERATION', 'Cannot undo while the previous task is unconfirmed or running')
             actual = self.snapshot(plan['action'], plan['target'])
-            require(self.expected_matches(plan, actual) or self.expected_matches(plan, actual, True) or digest(actual) == digest(plan['before']),
+            require(self.expected_matches(plan, actual) or self.expected_matches(plan, actual, True) or digest(actual) == digest(plan['before']) or self.partial_compose_failure(plan, actual, state),
                     'TARGET_CHANGED', 'Configuration differs from both saved and proposed versions; do not overwrite another edit')
             body = copy.deepcopy(plan['payload'])
             if plan['action'] == 'compose.update':

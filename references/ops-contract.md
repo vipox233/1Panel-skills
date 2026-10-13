@@ -49,3 +49,14 @@ is not human authentication, and chat confirmation is a soft workflow check.
 
 This is accident prevention, not hard API confinement. A retained administrator CLI
 and a full API key can bypass workflow scripts; do not claim IAM-like guarantees.
+
+
+### 1.2.0 additions
+
+Network inventory uses POST /api/v2/containers/network/search (page/pageSize/info),
+confirmed against v2.3.2 router and ContainerService.PageNetwork, not an invented
+registry action. countExecutingTasks uses the existing task-center query.
+Cron schedule reads loadCronjobInfo before constructing the full update DTO and
+rejects unsupported populated settings. The original client accepts an optional
+maxResponseBytes; the operations bridge enables 4 MiB without changing default
+client behavior. See the usage guide for reconciliation and mutable-image policy.

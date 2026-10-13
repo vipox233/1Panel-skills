@@ -10,7 +10,7 @@ import tempfile
 import time
 import uuid
 
-VERSION = '1.1.2'
+VERSION = '1.2.0'
 MAX_INPUT = 1024 * 1024
 
 class OpsError(Exception):
@@ -64,7 +64,9 @@ def redact(value):
         if secret:
             value = value.replace(secret, '[REDACTED]')
         value = re.sub(r'-----BEGIN [^-]*PRIVATE KEY-----.*?-----END [^-]*PRIVATE KEY-----', '[PRIVATE KEY REDACTED]', value, flags=re.S)
-        value = re.sub(r'(?i)((?:password|passwd|secret|token|api[_-]?key|authorization|cookie)[\w-]*\s*[=:]\s*)[^\s,;]+', r'\1[REDACTED]', value)
+        # Unstructured configuration/log strings cannot be safely partially redacted.
+        if re.search(r'(?i)(password|passwd|secret|token|api[_-]?key|authorization|cookie)[\w-]*[\s\"\']*[=:]', value):
+            return '[REDACTED SENSITIVE TEXT]'
         return re.sub(r'(https?|socks5h?)://[^\s/:@]+:[^\s/@]+@', r'\1://[REDACTED]@', value)
     return value
 

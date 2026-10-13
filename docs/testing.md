@@ -48,3 +48,18 @@ disposable resources for those checks; do not infer coverage from this smoke tes
 
 Version 1.1.2 corrects the website config type to openresty, verified with a real
 read. The earlier nginx type returned a business 500 despite HTTP 200.
+
+## 1.2.0 review regression validation (2026-10-13)
+
+- All 87 tests pass on the AgentDock host, including 3 real Docker Compose parser
+  cases. No Docker daemon mutations are performed by these tests.
+- Local tests: 84 pass, 3 parser cases skipped because local Docker is absent.
+- npm ci --ignore-scripts, npm run typecheck and npm run build pass on both hosts.
+- Regression fixtures cover all 11 review findings, positive controls, partial
+  Compose failure restore, refusal on drift, operator-assisted missing-receipt
+  reconciliation and reset of its observation window when tasks appear.
+- Mock HTTP verifies log tail clamp, 4 MiB response rejection, and invalid JSON
+  errors without raw response disclosure. Digest runtime checks distinguish
+  repository digests from actual local image IDs.
+- These are mock/contract/parser checks, not production deployment or rollback
+  exercises. Production service changes are intentionally absent in this revision.

@@ -86,6 +86,37 @@ def proxy_chain(request):
                          'No provider URL, password, listener or running service was changed.']}
 
 
+def verify_release_tree(release, archive):
+    """Compare all published bytes and paths; only the managed shared-data link is exempt."""
+    expected_files = {}; expected_dirs = set()
+    for entry in archive.infolist():
+        rel = safe_relative(entry.filename)
+        expected_dirs.update(str(p) for p in rel.parents if str(p) != '.')
+        if entry.is_dir(): expected_dirs.add(str(rel))
+        else: expected_files[str(rel)] = entry
+    actual_files = set(); actual_dirs = set()
+    for directory, dirs, files in os.walk(release, followlinks=False):
+        for name in list(dirs) + files:
+            path = Path(directory) / name; rel = str(path.relative_to(release))
+            if rel == 'data' and path.is_symlink() and os.readlink(path) == '../../data':
+                if name in dirs: dirs.remove(name)
+                continue
+            mode = path.lstat().st_mode
+            require(not stat.S_ISLNK(mode), 'BAD_RELEASE', 'Existing release contains a link')
+            if stat.S_ISDIR(mode): actual_dirs.add(rel); continue
+            require(stat.S_ISREG(mode) and rel in expected_files, 'BAD_RELEASE', 'Existing release contains unexpected content')
+            info = expected_files[rel]
+            require(path.stat().st_size == info.file_size, 'BAD_RELEASE', 'Existing release differs from the archive')
+            with path.open('rb') as actual, archive.open(info) as expected:
+                while True:
+                    a = actual.read(65536); b = expected.read(65536)
+                    require(a == b, 'BAD_RELEASE', 'Existing release differs from the archive')
+                    if not a: break
+            actual_files.add(rel)
+    require(actual_files == set(expected_files) and actual_dirs == expected_dirs,
+            'BAD_RELEASE', 'Existing release file tree differs from the archive')
+
+
 def static_release(request):
     """Stage a checksum-verified ZIP and switch a managed current symlink.
 
@@ -154,6 +185,7 @@ def static_release(request):
                 if temporary.exists(): shutil.rmtree(temporary)  # Only this invocation's own temporary directory.
         require(release.is_dir() and not release.is_symlink() and (release/'index.html').is_file(),
                 'BAD_RELEASE', 'Existing release is not a valid managed directory')
+        verify_release_tree(release, archive)
         shared = root / 'data'
         if shared.is_dir():
             require(not shared.is_symlink(), 'UNSAFE_PATH', 'Shared data directory must not be a symlink')

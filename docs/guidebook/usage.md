@@ -54,7 +54,11 @@ node dist/scripts/cli.js actions websites
 网络时用 `options.allow_host_network: true`。这些是部署选项，不是管理员认证。
 
 更新使用 `compose.update`；路径由实际库存获取，不接受调用方猜测的路径。
-省略 `env` 保留原值；`force_pull: true` 拉取镜像，优先固定版本或镜像摘要。
+省略 `env` 保留原值；`force_pull: true` 拉取镜像。默认要求 `image@sha256:…` 或本地镜像 ID；
+版本标签同样可变，明确选择标签部署时设置 `options.allow_mutable_images: true`。
+成功校验记录实际镜像 ID；标签部署不承诺重现相同字节。
+已有外部网络需在 `options.allow_networks` 中逐一列出真实名称（如 `1panel-network`），
+并显式声明 `external: true`；执行前再次检查网络存在。
 已有服务和挂载不会被悄悄移除或替换。`compose.rebuild` 明确停止再重建项目，
 会短暂中断但不删卷。应用商店资源不能通过普通 Compose 覆盖。
 
@@ -160,3 +164,34 @@ Mihomo 原生校验及真实连通测试仍需执行，YAML 成功不代表代�
 `TARGET_CHANGED` 表示目标变动，需重读；`APP_STORE_RESOURCE` 需要应用专门
 升级流程；`API_SHAPE` 需要核对本机 API 文档；`PERMISSION_DENIED` 不会自动
 追加 sudo。小配置记录不是云快照替代品，不公开上传整个状态目录。
+
+## 1.2.0 审查修复后的边界
+
+普通 Compose 更新不增减服务，不更换持久挂载；失败任务留下“旧 Compose + 新 env”
+时，只有项目身份一致、旧配置匹配、env 正好等于本次候选，才允许恢复保存的配置与镜像。
+其他混合状态拒绝覆盖，需先调查。数据库迁移仍不在回滚范围。
+
+`cron.schedule` 先读取完整任务详情，仅支持普通内联 shell 任务；脚本库、专用参数、
+secret、通知或其他专用配置非空时拒绝修改，避免全量更新 API 清空字段。
+Nginx 校验保留 server/location 作用域，不能通过互换配置位置绕过保护。
+静态发布复用目录时检查内容和文件集合，篡改、额外文件和非预期链接都会被拒绝。
+代理候选仅返回私有文件路径；日志 tail 默认 200、最多 1000 行，响应最多 4 MiB，
+超限整次失败，不返回截断成“成功”的内容。
+
+### 任务回执丢失后的恢复
+
+先 `verify`。若回执缺失，不能重试 apply，也不能把等待超时当作成功。
+由用户/运维人员确认旧请求与任务已经不可能延迟执行后，才可运行：
+
+```json
+{"skill_action":"reconcile","plan_id":"原计划ID","plan_digest":"原计划摘要","acknowledge_no_inflight":true}
+```
+
+这项确认必须来自用户，AI 不能根据等待时间自动填写。计划提交至少 5 分钟、
+执行中任务数为零、目标完整快照等于操作前，才记录首次观察；至少 60 秒后再查一次。
+如回执重新出现或任务仍在运行，清除观察并继续 verify；目标变化则保留记录并拒绝恢复。
+两次观察通过才标记 `reconciled_unchanged`，解除旧记录对后续写入的阻塞；不会发出写请求，
+也不声称原请求从未执行或部署成功。后续工作必须新建计划。此入口限有任务 ID 的正向
+submitted/uncertain 记录；丢失回滚回执等其他不明状态仍需人工调查，不能强制解锁。
+
+升级前的待执行计划应重新生成；不要修改旧计划文件来绕过快照或校验差异。

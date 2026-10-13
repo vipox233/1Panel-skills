@@ -67,7 +67,7 @@ def check_bind(source, allowed_roots):
         return
     p = Path(source).resolve()
     critical = [Path(x) for x in ('/etc','/root','/proc','/sys','/dev','/run','/var/run','/var/lib/docker','/opt/1panel/db')]
-    require(p != Path('/') and not any(p == x or x in p.parents for x in critical),
+    require(p != Path('/') and not any(p == x or x in p.parents or p in x.parents for x in critical),
             'UNSAFE_MOUNT', 'This bind mount exposes a critical host path')
     roots = [Path(x).resolve() for x in allowed_roots]
     require(any(p == root or root in p.parents for root in roots), 'UNSAFE_MOUNT',
@@ -102,7 +102,7 @@ def port_bindings(config):
                         for b in bindings[:i]), 'PORT_CONFLICT','Two services publish the same host port')
     return bindings
 
-def lint_compose(config, project, bind_roots=(), allow_host_network=False):
+def lint_compose(config, project, bind_roots=(), allow_host_network=False, allowed_networks=(), allow_mutable_images=False):
     name(project, 'project name')
     require(project.lower()==project, 'BAD_NAME', 'Compose project names must be lowercase')
     obj(config, 'compose')
@@ -111,9 +111,20 @@ def lint_compose(config, project, bind_roots=(), allow_host_network=False):
     services=obj(config.get('services'), 'services')
     require(0 < len(services) <= 32, 'BAD_COMPOSE','Expected 1..32 services')
     warnings=[]
+    boolean(allow_mutable_images, 'allow_mutable_images')
+    require(isinstance(allowed_networks, (list, tuple)) and all(isinstance(n, str) and n for n in allowed_networks), 'BAD_INPUT', 'allowed_networks must list exact network names')
+    for key, value in obj(config.get('networks', {}), 'networks').items():
+        value = {} if value is None else obj(value, 'network')
+        actual = value.get('name', key if value.get('external') else f'{project}_{key}')
+        if value.get('external') or actual != f'{project}_{key}':
+            require(value.get('external') is True and actual in allowed_networks, 'UNSAFE_NETWORK', 'External/custom networks require an explicit existing network allowlist')
+            require(not any(k in value for k in ('driver', 'driver_opts', 'ipam')), 'UNSAFE_NETWORK', 'External networks must not redefine network settings')
     for key, values in services.items():
         name(key,'service name'); obj(values, key)
-        require(bool(values.get('image')), 'BAD_COMPOSE','Every service needs an explicit image; host builds are not part of this script')
+        image = text(values.get('image'), 'image', 1000)
+        pinned = re.fullmatch(r'(?:[^\s@]+@)?sha256:[0-9a-f]{64}', image) is not None
+        require(pinned or allow_mutable_images, 'MUTABLE_IMAGE', 'Use an image digest, or explicitly select allow_mutable_images for a tag-based deployment')
+        if not pinned: warnings.append(f'{key}: mutable image reference; reviewed YAML does not fix deployed image bytes')
         for forbidden in ('build','extends','env_file','devices','device_cgroup_rules','use_api_socket','post_start','pre_stop','develop','volumes_from'):
             require(forbidden not in values, 'UNSUPPORTED', f'{key}: {forbidden} is not allowed in this deployment path')
         require(not values.get('privileged'), 'UNSAFE_COMPOSE', f'{key}: privileged mode is not supported')
@@ -148,9 +159,9 @@ def lint_compose(config, project, bind_roots=(), allow_host_network=False):
         for value in obj(config.get(kind,{}),kind).values():
             require(isinstance(value,dict) and 'file' not in value and 'environment' not in value and not value.get('external'),
                     'UNSAFE_MOUNT',f'{kind} must not load host files or pre-existing resources')
-    return {'services':list(services),'ports':port_bindings(config),'warnings':warnings}
+    return {'services':list(services),'ports':port_bindings(config),'warnings':warnings,'images':{k:v['image'] for k,v in services.items()}}
 
-def validate_compose(source, project, env='', bind_roots=(), allow_host_network=False):
+def validate_compose(source, project, env='', bind_roots=(), allow_host_network=False, allowed_networks=(), allow_mutable_images=False):
     raw=load_yaml(source)
     text(env,'env',200_000,empty=True)
     require(re.search(r'(?m)^\s*(?:export\s+)?(?:COMPOSE_|DOCKER_)[A-Za-z0-9_]*\s*=', env) is None,
@@ -161,7 +172,7 @@ def validate_compose(source, project, env='', bind_roots=(), allow_host_network=
             if isinstance(values.get('image'),str): values['image']=values['image'].replace('$','_')
             values['volumes']=[v for v in values.get('volumes',[]) if '$' not in str(v)]
             values['ports']=[v for v in values.get('ports',[]) if '$' not in str(v)]
-    lint_compose(provisional,project,bind_roots,allow_host_network)
+    lint_compose(provisional,project,bind_roots,allow_host_network,allowed_networks,True)
     docker=shutil.which('docker')
     require(docker is not None, 'DEPENDENCY','Docker Compose CLI is required for a real configuration check; no daemon write permission is needed')
     with tempfile.TemporaryDirectory(prefix='1panel-compose-check-') as tmp:
@@ -173,7 +184,7 @@ def validate_compose(source, project, env='', bind_roots=(), allow_host_network=
     require(result.returncode==0, 'COMPOSE_INVALID','Docker Compose rejected the candidate; inspect it locally (stderr is withheld because it may contain secrets)')
     try: normalized=json.loads(result.stdout)
     except ValueError as e: raise OpsError('COMPOSE_INVALID','Docker Compose did not return JSON') from e
-    report=lint_compose(normalized,project,bind_roots,allow_host_network)
+    report=lint_compose(normalized,project,bind_roots,allow_host_network,allowed_networks,allow_mutable_images)
     require('not set' not in result.stderr.lower(), 'UNRESOLVED_ENV','Compose reported an unset variable; supply its value explicitly')
     return report
 
@@ -200,41 +211,48 @@ def check_ports(bindings, occupied, previous=()):
                 raise OpsError('PORT_CONFLICT',f'Host port {port}/{protocol} is already listening')
 
 def nginx_directives(source):
-    text(source,'Nginx content')
-    lexer=shlex.shlex(source,posix=True,punctuation_chars='{};')
-    lexer.whitespace_split=True; lexer.commenters='#'
-    depth=0; current=[]; directives=[]
-    try: tokens=list(lexer)
-    except ValueError as e: raise OpsError('NGINX_INVALID','Unclosed quoted string') from e
+    """Conservative structural parser: preserve block header and sibling identity."""
+    text(source, 'Nginx content')
+    lexer = shlex.shlex(source, posix=True, punctuation_chars='{};')
+    lexer.whitespace_split = True; lexer.commenters = '#'
+    scope = []; child_counts = [0]; current = []; directives = []
+    try: tokens = list(lexer)
+    except ValueError as e: raise OpsError('NGINX_INVALID', 'Unclosed quoted string') from e
     for token in tokens:
         if token and all(c in '{};' for c in token):
             for c in token:
                 if c in ';{':
-                    if current: directives.append(tuple(current)); current=[]
-                    if c=='{': depth+=1
-                elif c=='}':
-                    require(not current,'NGINX_INVALID','Missing semicolon before closing block')
-                    depth-=1; require(depth>=0,'NGINX_INVALID','Unexpected closing brace')
+                    require(bool(current), 'NGINX_INVALID', 'Empty directive or unsupported syntax')
+                    item = tuple(current); current = []
+                    directives.append((tuple(scope), item, c))
+                    if c == '{':
+                        index = child_counts[-1]; child_counts[-1] += 1
+                        scope.append((item, index)); child_counts.append(0)
+                else:
+                    require(not current and bool(scope), 'NGINX_INVALID', 'Unexpected closing block or missing semicolon')
+                    scope.pop(); child_counts.pop()
         else: current.append(token)
-    require(depth==0 and not current, 'NGINX_INVALID','Unbalanced blocks or missing trailing semicolon')
+    require(not scope and not current, 'NGINX_INVALID', 'Unbalanced blocks or missing semicolon')
     return directives
 
 def lint_nginx(candidate, previous=None):
-    new=nginx_directives(candidate)
-    require(bool(new),'NGINX_INVALID','Empty Nginx configuration')
-    old=nginx_directives(previous) if previous is not None else []
-    old_counter=collections.Counter(old)
-    for item in new:
-        key=item[0].lower()
-        if ('lua' in key or key.startswith('perl') or key in ('load_module','env')) and old_counter[item]==0:
-            raise OpsError('UNSAFE_NGINX','Adding executable modules, Lua/Perl or environment directives requires separate manual review')
+    new = nginx_directives(candidate)
+    require(bool(new), 'NGINX_INVALID', 'Empty Nginx configuration')
+    old = nginx_directives(previous) if previous is not None else []
+    def executable(item):
+        key = item[1][0].lower()
+        return 'lua' in key or key.startswith('perl') or key in ('load_module', 'env')
+    require(not (collections.Counter(x for x in new if executable(x)) -
+                 collections.Counter(x for x in old if executable(x))),
+            'UNSAFE_NGINX', 'Adding or moving executable directives requires separate review')
     if previous is not None:
-        critical={'user','pid','load_module','include','root','alias','ssl_certificate','ssl_certificate_key','server_name','listen',
-                  'access_log','error_log','client_body_temp_path','proxy_temp_path','proxy_cache_path'}
-        require(collections.Counter(x for x in new if x[0] in critical)==collections.Counter(x for x in old if x[0] in critical),
-                'NEEDS_CONFIRMATION','This edit changes site identity, listeners, file mappings, includes or certificate paths; use the dedicated site/HTTPS action instead')
-    return {'structural_check':True,'nginx_syntax_check':False,
-            'note':'1Panel performs nginx -t and reload when saving. This preview is not a full nginx -t.'}
+        critical = {'user','pid','load_module','include','root','alias','ssl_certificate','ssl_certificate_key',
+                    'server_name','listen','access_log','error_log','client_body_temp_path','proxy_temp_path','proxy_cache_path'}
+        require(collections.Counter(x for x in new if x[1][0] in critical) ==
+                collections.Counter(x for x in old if x[1][0] in critical),
+                'NEEDS_CONFIRMATION', 'Protected directives or their enclosing blocks changed; use a dedicated operation')
+    return {'structural_check': True, 'nginx_syntax_check': False,
+            'note': '1Panel performs nginx -t and reload when saving. This preview is not a full nginx -t.'}
 
 def http_url(value):
     text(value,'URL',2000)

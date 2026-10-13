@@ -18,7 +18,7 @@ from ops.validators import load_yaml, lint_compose, validate_compose, lint_nginx
 from ops.operations import Operations
 from ops.helpers import container_proxy, proxy_chain, static_release
 
-GOOD = 'services:\n  web:\n    image: nginx:stable-alpine\n    ports: ["127.0.0.1:18081:80"]\n'
+GOOD = 'services:\n  web:\n    image: nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n    ports: ["127.0.0.1:18081:80"]\n'
 OLD = 'server { listen 80; server_name example.test; location / { proxy_pass http://127.0.0.1:8000; proxy_read_timeout 30s; } }'
 NEW = OLD.replace('30s', '60s')
 
@@ -258,7 +258,7 @@ class CliTests(unittest.TestCase):
         return proc.returncode, json.loads(proc.stdout)
     def test_status_offline(self):
         code, data = self.invoke({'skill_action':'status'})
-        self.assertEqual(code,0); self.assertEqual(data['version'],'1.1.2'); self.assertFalse(data['live_checked'])
+        self.assertEqual(code,0); self.assertEqual(data['version'],'1.2.0'); self.assertFalse(data['live_checked'])
     def test_no_unknown_fallback(self):
         code,data = self.invoke({'skill_action':'shell','command':'echo should-not-run'})
         self.assertEqual(code,1); self.assertEqual(data['code'],'UNKNOWN_ACTION')

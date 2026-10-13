@@ -1,7 +1,7 @@
 ---
 name: 1panel-skills
 description: Use for 1Panel resource queries, Docker software installation and Compose maintenance, OpenResty website and reverse-proxy configuration, HTTPS, web diagnostics, proxy configuration and scheduled maintenance. Reuse the original modules and client; use the added scripts for checked, reversible changes rather than inventing raw API calls.
-version: 1.1.2
+version: 1.2.0
 ---
 
 # 1Panel Skills: personal operations extension
@@ -58,16 +58,22 @@ printf '%s' '{"skill_action":"status"}' | python3 run.py
 
 Inputs are stdin JSON. Output is JSON with stable error codes. Large configurations
 may be passed using `content_file` instead of `content`. Proxy helpers save complete
-candidates to private draft files and return their paths; displayed previews are
-redacted and must not be used as the source of a secret-bearing configuration.
+candidates to private draft files and return their paths; stdout omits configuration text. Use the private candidate file as the source.
 
 Use `status`/`actions` to discover implemented operations. `query` delegates to the
 original module registry. `plan` makes no 1Panel write request; `apply` consumes one
 exact plan. Follow `submitted`/`uncertain` results with `verify`, never blind retries.
+For missing task receipts, see the operator-assisted reconcile procedure in the usage
+guide. Never invent acknowledge_no_inflight: elapsed time and zero executing tasks alone
+do not prove a delayed request cannot run. Recovery is not deployment success.
 Do not claim success while an asynchronous task is pending or a business error was
 returned with HTTP 200. For sites, choose a meaningful health URL and prefer an
 origin probe when diagnosing CDN versus origin behaviour.
 
+Compose images require a digest by default. Tags (including version tags) are mutable;
+use options.allow_mutable_images only for an explicit tag-based choice. Existing external
+networks require exact options.allow_networks names. Ordinary updates preserve the service
+set and mounts; adding/removing services needs a separate deployment design.
 Compose updates preserve prior local image IDs for undo. Undo does not reverse
 database migrations or restore deleted application data. Do not auto-upgrade an
 app-store-managed application using a generic Compose replacement. Existing

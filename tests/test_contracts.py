@@ -14,11 +14,13 @@ class StatefulPanel(FakePanel):
     def __init__(self):
         super().__init__()
         self.image = 'sha256:' + 'a'*64
+        self.image_ref = 'nginx@sha256:' + 'a'*64
         self.https = {'enable':True,'SSL':{'id':2,'privateKey':'not-for-output'}, 'httpConfig':'HTTPAlso','SSLProtocol':['TLSv1.2'],'httpsPorts':[443]}
         self.crons = []
     def query(self, module, action, values=None):
         if action == 'inspectContainer':
-            return json.dumps({'Image':self.image,'Config':{'Labels':{'com.docker.compose.project':'demo','com.docker.compose.service':'web'}}})
+            return json.dumps({'Image':self.image,'Config':{'Image':self.image_ref,'Labels':{'com.docker.compose.project':'demo','com.docker.compose.service':'web'}}})
+        if action == 'loadCronjobInfo': return copy.deepcopy(next(c for c in self.crons if c['id']==values['id']))
         if action == 'getCertificate': return {'id':values['id'],'privateKey':'not-for-output'}
         return super().query(module,action,values)
     def call(self, method, path, body=None):
@@ -34,6 +36,7 @@ class StatefulPanel(FakePanel):
             self.task_id = body['taskID']
             self.compose.update(content=body['content'], env=body['env'])
             image = load_yaml(body['content'])['services']['web']['image']
+            self.image_ref = image
             self.image = image if image.startswith('sha256:') else 'sha256:'+'b'*64
             return None
         if path == '/api/v2/cronjobs/update':
@@ -49,7 +52,7 @@ class ContractTests(Assertions):
         self.api.compose={'name':'demo','configFile':'/tmp/demo.yml','content':GOOD,'env':'SETTING=old','createdBy':'1Panel',
                           'containers':[{'name':'demo-web-1','containerID':'c1'}],'containerCount':1,'runningCount':1}
         with patch('ops.operations.validate_compose',return_value={'ports':[],'warnings':[]}), patch('ops.operations.occupied_ports',return_value=[]):
-            plan=self.ops.plan({'operation':'compose.update','target':{'name':'demo'},'change':{'content':GOOD.replace('stable-alpine','alpine'),'env':'SETTING=new'}})
+            plan=self.ops.plan({'operation':'compose.update','target':{'name':'demo'},'change':{'content':GOOD.replace('a'*64,'b'*64),'env':'SETTING=new'}})
             receipt=self.store.load(plan['plan_id']); undo=receipt['rollback_payload']
             self.assertEqual(load_yaml(undo['content'])['services']['web']['image'], 'sha256:'+'a'*64)
             self.assertEqual(load_yaml(undo['content'])['services']['web']['pull_policy'],'never')
@@ -67,7 +70,7 @@ class ContractTests(Assertions):
         self.assertEqual(self.ops.rollback(plan)['status'],'rolled_back')
         self.assertEqual(self.api.https['SSL']['id'],2)
     def test_existing_unicode_cron_preserves_user_and_script(self):
-        self.api.crons=[{'id':4,'name':'用量统计','type':'shell','spec':'0 */1 * * *','user':'root','script':'existing-command','executor':'bash','scriptMode':'input','status':'Enable','alertCount':0}]
+        self.api.crons=[{'id':4,'name':'用量统计','type':'shell','spec':'0 */1 * * *','user':'root','script':'existing-command','executor':'bash','scriptMode':'input','status':'Enable','alertCount':0,'groupID':0,'specCustom':True,'command':'','containerName':'','retainCopies':7,'retryTimes':0,'timeout':120,'ignoreErr':False,'scriptID':0,'args':'','secret':''}]
         plan=self.ops.plan({'operation':'cron.schedule','target':{'name':self.api.crons[0]['name'],'id':4},'change':{'spec':'0 */2 * * *'}})
         body=self.store.load(plan['plan_id'])['payload']
         self.assertEqual(body['user'],'root'); self.assertEqual(body['script'],'existing-command')
