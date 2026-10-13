@@ -5,6 +5,7 @@ import https from 'node:https';
 import type { OnePanelClientLike, OnePanelResponse, QueryValue, RequestOptions } from './types.js';
 
 export interface OnePanelClientConfig {
+  maxResponseBytes?: number;
   baseUrl: string;
   apiKey: string;
   timeoutMs?: number;
@@ -13,6 +14,7 @@ export interface OnePanelClientConfig {
 }
 
 export class OnePanelClient implements OnePanelClientLike {
+  private readonly maxResponseBytes?: number;
   private readonly baseUrl: URL;
   private readonly apiKey: string;
   private readonly timeoutMs: number;
@@ -20,6 +22,7 @@ export class OnePanelClient implements OnePanelClientLike {
   private readonly defaultHeaders: Record<string, string>;
 
   constructor(config: OnePanelClientConfig) {
+    this.maxResponseBytes = config.maxResponseBytes;
     this.baseUrl = new URL(config.baseUrl);
     this.apiKey = config.apiKey;
     this.timeoutMs = config.timeoutMs ?? 30_000;
@@ -27,7 +30,7 @@ export class OnePanelClient implements OnePanelClientLike {
     this.defaultHeaders = config.defaultHeaders ?? {};
   }
 
-  static fromEnv(env: Record<string, string | undefined>): OnePanelClient {
+  static fromEnv(env: Record<string, string | undefined>, options: Pick<OnePanelClientConfig, 'maxResponseBytes'> = {}): OnePanelClient {
     const baseUrl = env.ONEPANEL_BASE_URL?.trim();
     const apiKey = env.ONEPANEL_API_KEY?.trim();
     if (!baseUrl) {
@@ -38,6 +41,7 @@ export class OnePanelClient implements OnePanelClientLike {
     }
 
     return new OnePanelClient({
+      ...options,
       baseUrl,
       apiKey,
       timeoutMs: Number.parseInt(env.ONEPANEL_TIMEOUT_MS || '30000', 10),
@@ -66,13 +70,31 @@ export class OnePanelClient implements OnePanelClientLike {
         },
         (response) => {
           const chunks: Buffer[] = [];
+          let received = 0;
+          let failed = false;
+          response.on('error', (error) => { failed = true; reject(error); });
           response.on('data', (chunk) => {
-            chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+            if (failed) return;
+            const data = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+            received += data.length;
+            if (this.maxResponseBytes !== undefined && received > this.maxResponseBytes) {
+              const error = Object.assign(new Error('1Panel response exceeds configured byte limit'), { code: 'RESPONSE_LIMIT' });
+              failed = true; chunks.length = 0;
+              reject(error); response.destroy(); request.destroy(); return;
+            }
+            chunks.push(data);
           });
           response.on('end', () => {
+            if (failed) return;
             const rawBody = Buffer.concat(chunks).toString('utf8');
             const normalizedHeaders = normalizeHeaders(response.headers);
-            const data = parseResponseBody<T>(rawBody, normalizedHeaders['content-type']);
+            let data: T;
+            try {
+              data = parseResponseBody<T>(rawBody, normalizedHeaders['content-type']);
+            } catch {
+              reject(Object.assign(new Error('1Panel returned invalid JSON'), { code: 'INVALID_RESPONSE' }));
+              return;
+            }
             resolve({
               status: response.statusCode ?? 0,
               headers: normalizedHeaders,
