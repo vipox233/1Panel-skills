@@ -78,6 +78,31 @@ class EmptyInventoryTests(Assertions):
         with patch.object(self.api, 'call', side_effect=[first, second]):
             self.denied('API_SHAPE', self.ops.compose_rows)
 
+    def test_nonempty_short_page_must_not_hide_existing_compose(self):
+        # The missing final row could contain the target project.
+        short_page = {'total': 101, 'items': [{'name': f'project-{i}'} for i in range(99)]}
+        with patch.object(self.api, 'call', return_value=short_page):
+            self.denied('API_SHAPE', self.ops.compose_rows)
+            self.denied('API_SHAPE', self.ops.plan, {
+                'operation': 'compose.create',
+                'target': {'name': 'demo'},
+                'change': {'content': GOOD},
+            })
+        self.assertEqual(self.api.writes, [])
+
+    def test_second_page_missing_one_row_must_not_be_accepted(self):
+        first = {'total': 102, 'items': [{'name': f'project-{i}'} for i in range(100)]}
+        second = {'total': 102, 'items': [{'name': 'project-100'}]}
+        with patch.object(self.api, 'call', side_effect=[first, second]):
+            self.denied('API_SHAPE', self.ops.compose_rows)
+
+    def test_exact_short_final_page_still_succeeds(self):
+        first = {'total': 101, 'items': [{'name': f'project-{i}'} for i in range(100)]}
+        second = {'total': 101, 'items': [{'name': 'project-100'}]}
+        with patch.object(self.api, 'call', side_effect=[first, second]):
+            rows = self.ops.compose_rows()
+        self.assertEqual(len(rows), 101)
+
 
 if __name__ == '__main__':
     unittest.main()
