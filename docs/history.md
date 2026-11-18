@@ -94,3 +94,10 @@ Resin Docker 编排首次创建时，真实 1Panel 的 `/containers/compose/sear
 
 补充模拟失败任务从 submitted 到 failed 的恢复回归，以及真实 Compose CLI
 外部网络配置解析测试。原鉴权传输、危险挂载/网络保护、服务器资源保留不变。
+
+## 1.2.5 — 失败编排更新路径共用容器库存归一（2026-11-18）
+
+Codex 对 #4 复审发现 P2：`compose.update`/`compose.rebuild` 在
+`_compose_checks` 中二次读取原始项目行时仍遍历 `containers=null`，产生
+TypeError。提取共用 `compose_containers` 归一与计数校验逻辑，并在快照读取及
+更新前端口/容器冲突检查中复用，保持不一致库存明确拒绝。补充单元回归。
