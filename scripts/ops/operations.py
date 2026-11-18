@@ -79,6 +79,11 @@ class Operations:
                 result = self.call('POST', path, params)
             batch = records(result)
             rows.extend(batch)
+            # A truncated/empty page with a positive reported total must not
+            # be mistaken for an absent resource during safety checks.
+            total = result.get('total') if isinstance(result, dict) else None
+            if type(total) is int and total > len(rows) and not batch:
+                raise OpsError('API_SHAPE', 'Inventory pagination returned an empty page before reported total')
             if (isinstance(result, dict) and isinstance(result.get('total'), (int, float))
                     and len(rows) >= result['total']) or len(batch) < 100:
                 return rows

@@ -67,3 +67,17 @@ not evidence that production write flows have been verified.
 增加一条真实 Compose 解析回归：挂载路径改变被拒绝、无关 env 更新允许、零写入。
 最近静态发布并发和额外 loopback 写法两条 P2 接受为当前限制；此前其他取舍继续保留。
 检查通过后合并原 PR 并安装 1.2.2，结束 bot 跟随；没有生产资源变更。
+
+## 1.2.3 — 1Panel 空编排库存兼容性（2026-11-18）
+
+Resin Docker 编排首次创建时，真实 1Panel 的 `/containers/compose/search`
+返回 `{"total":0,"items":null}`，旧库存解析因要求数组而拒绝继续。
+为 `records()` 补充最小兼容：仅接受整数 `total=0` 且已知集合键显式为
+`null` 的空列表；非零数量、缺少数量、错误集合类型继续报 `API_SHAPE`。
+
+另外在分页扫描中拒绝“宣称尚有记录但本页为空”的矛盾响应，避免误将
+不完整库存当作目标不存在。新增模拟 1Panel 空列表、Compose 创建完整流程
+和分页矛盾的回归测试；原 Node 客户端、签名与模块注册保持不变。
+
+该修复针对已经观察到的生产只读返回形状。测试、PR 审核与正式安装验证分开记录；
+生产 Resin 容器此前因镜像拉取失败尚未完成部署。
