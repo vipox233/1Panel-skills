@@ -82,3 +82,15 @@ Resin Docker 编排首次创建时，真实 1Panel 的 `/containers/compose/sear
 
 该修复针对已经观察到的生产只读返回形状。测试、PR 审核与正式安装验证分开记录；
 生产 Resin 容器此前因镜像拉取失败尚未完成部署。
+
+## 1.2.4 — 1Panel 失败编排快照与外部网络兼容（2026-11-18）
+
+真实安装 Resin 时进一步发现两个边缘响应：
+1. 1Panel 在镜像拉取失败后保留 Compose 项目记录，`containerCount=0`、`containers=null`。
+   旧快照读取抛 TypeError，使失败任务无法完成 verify 并阻塞后续写入。
+   当前仅在显式零容器计数时把 null 归一为空列表；非零计数与数据不一致继续拒绝。
+2. `docker compose config` 将外部网络规范化为 `ipam: {}`，旧校验误报
+   `UNSAFE_NETWORK`。允许这一空对象，仍拒绝指定 driver/driver_opts 或非空 IPAM。
+
+补充模拟失败任务从 submitted 到 failed 的恢复回归，以及真实 Compose CLI
+外部网络配置解析测试。原鉴权传输、危险挂载/网络保护、服务器资源保留不变。

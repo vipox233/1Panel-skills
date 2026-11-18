@@ -5,13 +5,25 @@ import sys
 import unittest
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts'))
 from ops.common import OpsError
-from ops.validators import validate_compose
+from ops.validators import validate_compose, lint_compose, load_yaml
 
 @unittest.skipUnless(shutil.which('docker'), 'Docker Compose CLI not installed')
 class ComposeCliTests(unittest.TestCase):
     def test_actual_parser(self):
         result=validate_compose('services:\n  app:\n    image: nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n    volumes: ["./data:/data"]\n    ports: ["127.0.0.1:18991:80"]\n','parser-test')
         self.assertEqual(result['services'],['app']); self.assertEqual(result['ports'][0]['port'],18991)
+    def test_external_network_ipam_empty_after_compose_config(self):
+        image = 'nginx@sha256:' + 'a'*64
+        source = ('services:\n  app:\n    image: ' + image +
+                  '\n    networks: [proxy-net]\nnetworks:\n  proxy-net:\n    external: true\n')
+        result = validate_compose(source, 'parser-test', allowed_networks=['proxy-net'])
+        self.assertEqual(result['services'], ['app'])
+        config = load_yaml(source)
+        config['networks']['proxy-net']['ipam'] = {'config': [{'subnet': '10.11.0.0/24'}]}
+        with self.assertRaises(OpsError) as error:
+            lint_compose(config, 'parser-test', allowed_networks=['proxy-net'])
+        self.assertEqual(error.exception.code, 'UNSAFE_NETWORK')
+
     def test_resolved_dangerous_env_path_rejected(self):
         with self.assertRaises(OpsError):
             validate_compose('services:\n  app:\n    image: nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n    volumes: ["${DATA}:/data"]\n','parser-test','DATA=/etc')

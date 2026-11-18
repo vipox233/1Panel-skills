@@ -215,3 +215,14 @@ submitted/uncertain 记录；丢失回滚回执等其他不明状态仍需人工
 1.2.2 更新会分别用旧 env 和候选 env 解析 Compose 后比较挂载；即使 YAML 不变，
 通过环境变量改变数据目录也会被拒绝。正常的无关环境变量更新不受影响。
 旧端口也从解析后的配置读取，避免端口变量被误当成无效数字。
+
+### 1.2.4 失败编排与外部网络兼容
+
+1Panel 在首次 Compose 创建失败后可能保留空编排记录（零容器、`containers=null`）。
+现在 `verify` 可以按真实终态将该任务记录为 `failed`，解除其他独立操作的
+待验证写入阻塞。已存在的空编排仍是实际资源；后续创建需选择新的项目名，
+或者另行规划受控恢复，不能借助 `compose.create` 覆盖该资源。
+
+`docker compose config` 自动生成的外部网络 `ipam: {}` 已获兼容；
+非空 IPAM、自定义 driver 或 driver_opts 继续受限。外部网络仍需通过
+`options.allow_networks` 指定实际存在的网络名称。
