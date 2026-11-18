@@ -11,7 +11,7 @@ import tempfile
 import time
 import uuid
 
-VERSION = '1.2.2'
+VERSION = '1.2.3'
 MAX_INPUT = 1024 * 1024
 
 class OpsError(Exception):
@@ -78,6 +78,11 @@ def records(data):
         for key in ('items', 'records', 'data'):
             if isinstance(data.get(key), list):
                 return data[key]
+        # 1Panel represents an empty page as {"total": 0, "items": null}.
+        # Require an explicit zero count and a known null collection key.
+        if type(data.get('total')) is int and data['total'] == 0:
+            if any(key in data and data[key] is None for key in ('items', 'records', 'data')):
+                return []
     raise OpsError('API_SHAPE', 'Expected a list response; no mutation was inferred from an unfamiliar response')
 
 def content(data):

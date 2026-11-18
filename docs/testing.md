@@ -70,3 +70,12 @@ adaptation warning). Authenticated read-only checks found 11 containers, 3 sites
 unchanged real-site Nginx structural validation. No configuration bodies or secrets
 were printed. Shell cron DTO includes dbType/isDir defaults; these unrelated fields
 are preserved rather than causing a false rejection.
+
+## 1.2.3 empty-inventory regression (2026-11-18)
+
+A real 1Panel read returned `{"total":0,"items":null}` for a missing Compose project.
+The new mocked regression covers that shape for Compose and task inventories, plus
+a create/verify workflow under a zero-row Compose response. Negative controls
+preserve `API_SHAPE` for missing or inconsistent counts and a prematurely empty
+pagination page. CI runs the repository's full Python, Node, Compose parser, and
+packaging checks; CI success is separate from live Docker deployment evidence.
