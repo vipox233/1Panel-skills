@@ -88,3 +88,9 @@ record. Nonzero or inconsistent container counts remain `API_SHAPE` errors.
 A real `docker compose config` regression covers the normalized empty
 `ipam: {}` that Compose adds to external networks; nonempty IPAM stays rejected.
 No real container is created by these tests.
+
+## 1.2.5 null-container recheck regression
+
+Compose update/rebuild preflight uses the same container inventory normalization as
+the initial snapshot. Simulated zero-count null inventory passes, inconsistent
+counts fail before write.

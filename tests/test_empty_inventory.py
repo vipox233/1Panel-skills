@@ -148,6 +148,21 @@ class EmptyInventoryTests(Assertions):
             })
             self.assertEqual(new['status'], 'planned')
 
+    def test_empty_failed_compose_update_checks_use_normalized_containers(self):
+        self.api.compose = {
+            'name': 'demo', 'configFile': '/tmp/demo.yml',
+            'env': '', 'createdBy': '1Panel', 'content': GOOD,
+            'containers': None, 'containerCount': 0, 'runningCount': 0,
+        }
+        before = self.ops.compose('demo')
+        report = {'ports': [], 'warnings': [], 'mounts': {'web': []}, 'images': {}}
+        with patch('ops.operations.validate_compose', return_value=report), \
+             patch('ops.operations.occupied_ports', return_value=[]):
+            self.ops._compose_checks(GOOD, 'demo', '', {}, before)
+            self.api.compose['containerCount'] = 1
+            self.denied('API_SHAPE', self.ops._compose_checks, GOOD, 'demo', '', {}, before)
+        self.assertEqual(self.api.writes, [])
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -56,6 +56,21 @@ def same_text(a, b):
     return a.replace('\r\n', '\n').strip() == b.replace('\r\n', '\n').strip()
 
 
+def compose_containers(row):
+    """Read a 1Panel Compose inventory container list with strict count checks."""
+    containers = row.get('containers', [])
+    count = row.get('containerCount')
+    # A failed initial create may have an explicit zero count and null items.
+    if containers is None and type(count) is int and count == 0:
+        containers = []
+    require(isinstance(containers, list), 'API_SHAPE',
+            'Compose inventory omitted container details')
+    if count is not None:
+        require(type(count) is int and count >= 0 and len(containers) == count,
+                'API_SHAPE', 'Compose container count/details disagree')
+    return containers
+
+
 class Operations:
     def __init__(self, api, store=None):
         self.api, self.store = api, store or Store()
@@ -121,18 +136,7 @@ class Operations:
         env = row.get('env')
         require(isinstance(env, str), 'API_SHAPE', 'Compose inventory did not include its environment text')
         images = {}; image_refs = {}
-        containers = row.get('containers', [])
-        count = row.get('containerCount')
-        # A failed initial Compose create leaves a project record with no
-        # containers. 1Panel serializes that empty list as null.
-        if containers is None and type(count) is int and count == 0:
-            containers = []
-        require(isinstance(containers, list), 'API_SHAPE',
-                'Compose inventory omitted container details')
-        if count is not None:
-            require(type(count) is int and count >= 0 and len(containers) == count,
-                    'API_SHAPE', 'Compose container count/details disagree')
-        for item in containers:
+        for item in compose_containers(row):
             info = self.api.query('containers', 'inspectContainer', {'id': item['containerID'], 'type': 'container', 'detail': ''})
             if isinstance(info, str): info = json.loads(info)
             obj(info, 'container inspection')
@@ -226,7 +230,7 @@ class Operations:
         own_names = set()
         if before:
             row = exact(self.compose_rows(), 'name', project)
-            own_names = {c['name'] for c in row.get('containers', [])}
+            own_names = {c['name'] for c in compose_containers(row)}
             prior_services = load_yaml(before['content']).get('services', {})
             require(set(prior_services) <= set(candidates), 'SERVICE_REMOVAL',
                     'Removing existing services is not part of this update workflow')
