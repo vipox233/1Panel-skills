@@ -79,3 +79,12 @@ a create/verify workflow under a zero-row Compose response. Negative controls
 preserve `API_SHAPE` for missing or inconsistent counts and a prematurely empty
 pagination page. CI runs the repository's full Python, Node, Compose parser, and
 packaging checks; CI success is separate from live Docker deployment evidence.
+
+## 1.2.4 failed Compose snapshot and external network regression (2026-11-18)
+
+Mocked 1Panel Compose rows with `containers=null` and an explicit zero count are
+readable, allowing a failed install task to verify as failed and release its pending
+record. Nonzero or inconsistent container counts remain `API_SHAPE` errors.
+A real `docker compose config` regression covers the normalized empty
+`ipam: {}` that Compose adds to external networks; nonempty IPAM stays rejected.
+No real container is created by these tests.

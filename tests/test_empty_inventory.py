@@ -104,5 +104,50 @@ class EmptyInventoryTests(Assertions):
         self.assertEqual(len(rows), 101)
 
 
+    def test_failed_compose_with_null_containers_is_readable(self):
+        self.api.compose = {
+            'name': 'demo', 'configFile': '/tmp/demo.yml',
+            'env': '', 'createdBy': '1Panel', 'content': GOOD,
+            'containers': None, 'containerCount': 0, 'runningCount': 0,
+        }
+        details = self.ops.compose('demo')
+        self.assertEqual(details['images'], {})
+        self.assertEqual(details['image_refs'], {})
+        self.assertEqual(self.api.writes, [])
+
+    def test_inconsistent_compose_container_counts_are_rejected(self):
+        self.api.compose = {
+            'name': 'demo', 'configFile': '/tmp/demo.yml',
+            'env': '', 'createdBy': '1Panel', 'content': GOOD,
+            'containers': None, 'containerCount': 0, 'runningCount': 0,
+        }
+        for count, containers in ((1, None), (1, []), (0, 'wrong')):
+            with self.subTest(count=count, containers=containers):
+                self.api.compose.update(containerCount=count, containers=containers)
+                self.denied('API_SHAPE', self.ops.compose, 'demo')
+        self.assertEqual(self.api.writes, [])
+
+    def test_failed_empty_compose_task_can_release_pending_record(self):
+        report = {'ports': [], 'warnings': [], 'mounts': {}, 'images': {}}
+        with patch('ops.operations.validate_compose', return_value=report), \
+             patch('ops.operations.occupied_ports', return_value=[]):
+            old = self.ops.plan({
+                'operation': 'compose.create',
+                'target': {'name': 'demo'},
+                'change': {'content': GOOD},
+            })
+            self.api.task_status = 'Waiting'
+            self.assertEqual(self.ops.apply(old)['status'], 'submitted')
+            self.api.task_status = 'Failed'
+            self.api.compose.update(containers=None, containerCount=0, runningCount=0)
+            self.assertEqual(self.ops.verify(old)['status'], 'failed')
+            new = self.ops.plan({
+                'operation': 'compose.create',
+                'target': {'name': 'new-project'},
+                'change': {'content': GOOD},
+            })
+            self.assertEqual(new['status'], 'planned')
+
+
 if __name__ == '__main__':
     unittest.main()

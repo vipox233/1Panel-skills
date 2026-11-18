@@ -121,7 +121,18 @@ class Operations:
         env = row.get('env')
         require(isinstance(env, str), 'API_SHAPE', 'Compose inventory did not include its environment text')
         images = {}; image_refs = {}
-        for item in row.get('containers', []):
+        containers = row.get('containers', [])
+        count = row.get('containerCount')
+        # A failed initial Compose create leaves a project record with no
+        # containers. 1Panel serializes that empty list as null.
+        if containers is None and type(count) is int and count == 0:
+            containers = []
+        require(isinstance(containers, list), 'API_SHAPE',
+                'Compose inventory omitted container details')
+        if count is not None:
+            require(type(count) is int and count >= 0 and len(containers) == count,
+                    'API_SHAPE', 'Compose container count/details disagree')
+        for item in containers:
             info = self.api.query('containers', 'inspectContainer', {'id': item['containerID'], 'type': 'container', 'detail': ''})
             if isinstance(info, str): info = json.loads(info)
             obj(info, 'container inspection')

@@ -118,7 +118,11 @@ def lint_compose(config, project, bind_roots=(), allow_host_network=False, allow
         actual = value.get('name', key if value.get('external') else f'{project}_{key}')
         if value.get('external') or actual != f'{project}_{key}':
             require(value.get('external') is True and actual in allowed_networks, 'UNSAFE_NETWORK', 'External/custom networks require an explicit existing network allowlist')
-            require(not any(k in value for k in ('driver', 'driver_opts', 'ipam')), 'UNSAFE_NETWORK', 'External networks must not redefine network settings')
+            # docker compose config adds ipam: {} to an external network.
+            # Empty IPAM changes no settings; nonempty IPAM remains rejected.
+            require(not any(k in value for k in ('driver', 'driver_opts'))
+                    and value.get('ipam') in (None, {}),
+                    'UNSAFE_NETWORK', 'External networks must not redefine network settings')
     for key, values in services.items():
         name(key,'service name'); obj(values, key)
         image = text(values.get('image'), 'image', 1000)

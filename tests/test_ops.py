@@ -89,6 +89,17 @@ class FakePanel:
         self.config = OLD; self.writes = []; self.fail = False
         self.compose = None; self.task_status = 'Success'; self.task_id = None
     def query(self, module, action, values=None):
+        if action == 'inspectContainer':
+            return json.dumps({
+                'Image': 'sha256:' + 'a'*64,
+                'Config': {
+                    'Image': 'nginx@sha256:' + 'a'*64,
+                    'Labels': {
+                        'com.docker.compose.project': self.compose['name'],
+                        'com.docker.compose.service': 'web',
+                    },
+                },
+            })
         mapping = {('containers','searchContainers'):'/containers/search',
                    ('websites','searchWebsites'):'/websites/search',
                    ('cronjobs','searchCronjobs'):'/cronjobs/search',
@@ -113,7 +124,8 @@ class FakePanel:
         if path == '/api/v2/containers/compose':
             self.task_id = body['taskID']
             self.compose = {'name': body['name'], 'configFile': '/tmp/demo/docker-compose.yml', 'env': body['env'],
-                            'createdBy': '1Panel', 'content': body['file'], 'containerCount': 1, 'runningCount': 1}
+                            'createdBy': '1Panel', 'content': body['file'], 'containerCount': 1, 'runningCount': 1,
+                            'containers': [{'name': body['name']+'-web-1', 'containerID': 'fake-container-1'}]}
             return None
         raise AssertionError((method, path, body))
 
@@ -258,7 +270,7 @@ class CliTests(unittest.TestCase):
         return proc.returncode, json.loads(proc.stdout)
     def test_status_offline(self):
         code, data = self.invoke({'skill_action':'status'})
-        self.assertEqual(code,0); self.assertEqual(data['version'],'1.2.3'); self.assertFalse(data['live_checked'])
+        self.assertEqual(code,0); self.assertEqual(data['version'],'1.2.4'); self.assertFalse(data['live_checked'])
     def test_no_unknown_fallback(self):
         code,data = self.invoke({'skill_action':'shell','command':'echo should-not-run'})
         self.assertEqual(code,1); self.assertEqual(data['code'],'UNKNOWN_ACTION')
